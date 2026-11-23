@@ -99,6 +99,8 @@ Each response returns the original text, decoded rows, dataset version, settled 
 
 `iter_export_pages` follows continuation cursors lazily while keeping the same organization, dataset, window, format, and grouping on every request.
 
+The first page read by an iterator fixes the dataset version and settled horizon for that iteration, including when resuming from a cursor. If a later page changes either header, the iterator raises `urn:proofline:sdk:invalid-pagination` before yielding that page. Start a fresh export to collect a complete window.
+
 ```python
 with ProoflineClient() as client:
     for page in client.iter_export_pages(
