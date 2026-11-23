@@ -208,6 +208,17 @@ def _export_next_cursor(page: ExportPage, seen: set[str]) -> str | None:
     return cursor
 
 
+def _export_metadata(page: ExportPage, expected: tuple[int, str] | None) -> tuple[int, str]:
+    metadata = (page.version, page.settled_until)
+    if expected is not None and metadata != expected:
+        raise ProoflineError(
+            0,
+            "urn:proofline:sdk:invalid-pagination",
+            "The export version or settled horizon changed between pages. Start a new export.",
+        )
+    return metadata
+
+
 class ProoflineClient(Operations):
     """Synchronous typed HTTP operations.
 
@@ -317,9 +328,10 @@ class ProoflineClient(Operations):
         group_by: str | None = None,
         max_pages: int = 100,
     ) -> Iterator[ExportPage]:
-        """Stream export pages, refusing cursor cycles and incomplete bounded traversals."""
+        """Stream export pages with one dataset version and settled horizon."""
         _export_page_limit(max_pages)
         seen = {cursor} if cursor is not None else set()
+        metadata = None
         for _ in range(max_pages):
             page = self.export_reviews(
                 organization_id,
@@ -331,6 +343,7 @@ class ProoflineClient(Operations):
                 group_by=group_by,
             )
             cursor = _export_next_cursor(page, seen)
+            metadata = _export_metadata(page, metadata)
             yield page
             if cursor is None:
                 return
@@ -687,9 +700,10 @@ class AsyncProoflineClient(AsyncOperations):
         group_by: str | None = None,
         max_pages: int = 100,
     ) -> AsyncIterator[ExportPage]:
-        """Stream export pages, refusing cursor cycles and incomplete bounded traversals."""
+        """Stream export pages with one dataset version and settled horizon."""
         _export_page_limit(max_pages)
         seen = {cursor} if cursor is not None else set()
+        metadata = None
         for _ in range(max_pages):
             page = await self.export_reviews(
                 organization_id,
@@ -701,6 +715,7 @@ class AsyncProoflineClient(AsyncOperations):
                 group_by=group_by,
             )
             cursor = _export_next_cursor(page, seen)
+            metadata = _export_metadata(page, metadata)
             yield page
             if cursor is None:
                 return
