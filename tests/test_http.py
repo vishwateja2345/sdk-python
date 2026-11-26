@@ -2036,6 +2036,42 @@ async def test_export_iterator_never_yields_the_page_with_an_invalid_cursor(
 
 
 @MODES
+@pytest.mark.parametrize("changed", ["horizon", "version"])
+async def test_export_iterator_refuses_page_with_changed_metadata(mode: str, changed: str) -> None:
+    def respond(request: Request, index: int) -> Reply:
+        query = parse_qs(urlsplit(request.path).query)
+        assert query.get("cursor") == (["next"] if index else None)
+        version = 2 if index and changed == "version" else 1
+        horizon = (
+            "2026-10-25T00:05:00Z" if index and changed == "horizon" else "2026-10-25T00:00:00Z"
+        )
+        headers = {
+            "Content-Type": "application/x-ndjson",
+            "X-Proofline-Export-Version": str(version),
+            "X-Proofline-Export-Settled-Until": horizon,
+        }
+        if index == 0:
+            headers["X-Proofline-Export-Next-Cursor"] = "next"
+        # Each page is valid on its own, including an empty final page.
+        body = b"" if index and changed == "version" else b'{"dataset_version":1}\n'
+        return Reply(body=body, headers=headers)
+
+    with Server(respond) as server:
+        async with session(mode, server.url) as client:
+            iterator = client.iter_export_pages(
+                ORG,
+                "findings",
+                from_time="2026-10-01T00:00:00Z",
+                to_time="2026-10-25T00:00:00Z",
+            )
+            assert (await next_export(iterator)).rows == [{"dataset_version": 1}]
+            with pytest.raises(ProoflineError) as raised:
+                await next_export(iterator)
+            assert raised.value.type == "urn:proofline:sdk:invalid-pagination"
+        assert len(server.requests) == 2
+
+
+@MODES
 @pytest.mark.parametrize(
     ("format", "content_type"),
     [
